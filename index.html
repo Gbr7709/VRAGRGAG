@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#050505">
+<title>VR BOX Side by Side</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#050505;color:#fff;font-family:system-ui,-apple-system,Arial,sans-serif;overflow:hidden}
+#stage{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center}
+canvas{display:block;width:100vw;height:100vh;object-fit:contain;background:#000}
+#empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:28px;color:#ddd;pointer-events:none}
+#empty .hint{max-width:340px;line-height:1.5}#empty strong{font-size:22px;display:block;margin-bottom:8px}
+#panel{position:fixed;z-index:5;left:12px;right:12px;top: max(12px, env(safe-area-inset-top));display:flex;gap:8px;flex-wrap:wrap;justify-content:center;transition:opacity .25s}
+button,.filelabel{border:1px solid #555;background:#191919;color:white;border-radius:999px;padding:11px 15px;font-size:14px;font-weight:600}
+button:active,.filelabel:active{background:#444}input[type=file]{display:none}
+#bottom{position:fixed;z-index:5;bottom:max(12px,env(safe-area-inset-bottom));left:12px;right:12px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
+#status{position:fixed;z-index:4;bottom:70px;left:0;right:0;text-align:center;color:#bbb;font-size:12px;text-shadow:0 1px 4px #000;pointer-events:none}
+.hidden{display:none!important}
+@media(orientation:portrait){#stage canvas{width:100vw;height:100vh}}
+</style>
+</head>
+<body>
+<div id="stage">
+ <canvas id="screen"></canvas>
+ <div id="empty"><div class="hint"><strong>VR BOX SIDE BY SIDE</strong>Escolha <b>Câmera</b> para ver ao vivo ou <b>Abrir vídeo</b> para assistir com a tela dividida.</div></div>
+</div>
+<div id="panel">
+ <button id="camera">📷 Câmera</button>
+ <label class="filelabel" for="videoFile">▶ Abrir vídeo</label><input id="videoFile" type="file" accept="video/*">
+ <button id="fullscreen">⛶ Tela cheia</button>
+ <button id="hide">Ocultar controles</button>
+</div>
+<div id="bottom" class="hidden">
+ <button id="flip">Trocar câmera</button>
+ <button id="mirror">Espelhar: não</button>
+ <button id="fit">Ajuste: preencher</button>
+ <button id="stop">Parar</button>
+ <button id="show">Mostrar controles</button>
+</div>
+<div id="status">Dica: coloque o iPhone na horizontal dentro do VR BOX.</div>
+<video id="source" playsinline webkit-playsinline muted style="display:none"></video>
+<script>
+(()=> {
+ const canvas=document.getElementById('screen'),ctx=canvas.getContext('2d',{alpha:false});
+ const video=document.getElementById('source'),empty=document.getElementById('empty');
+ const panel=document.getElementById('panel'),bottom=document.getElementById('bottom'),status=document.getElementById('status');
+ let stream=null,mode='none',facing='environment',mirrored=false,fit='cover',raf=0,objectUrl=null;
+ function resize(){const d=Math.min(window.devicePixelRatio||1,2);canvas.width=Math.round(innerWidth*d);canvas.height=Math.round(innerHeight*d);draw()}
+ function draw(){
+   const w=canvas.width,h=canvas.height;ctx.fillStyle='#000';ctx.fillRect(0,0,w,h);
+   if(video.readyState>=2 && video.videoWidth && video.videoHeight){
+     const half=w/2, vw=video.videoWidth,vh=video.videoHeight;
+     let scale=fit==='cover'?Math.max(half/vw,h/vh):Math.min(half/vw,h/vh);
+     let dw=vw*scale,dh=vh*scale,dx=(half-dw)/2,dy=(h-dh)/2;
+     for(let i=0;i<2;i++){
+       ctx.save();ctx.beginPath();ctx.rect(i*half,0,half,h);ctx.clip();
+       if(mirrored){ctx.translate(i*half+half,0);ctx.scale(-1,1);ctx.drawImage(video,dx,dy,dw,dh)}
+       else ctx.drawImage(video,i*half+dx,dy,dw,dh);
+       ctx.restore();
+     }
+   }
+   raf=requestAnimationFrame(draw);
+ }
+ function setActive(on){empty.classList.toggle('hidden',on);status.textContent=on?'Imagem duplicada nos dois lados. Coloque o iPhone na horizontal.':'Escolha Câmera ou Abrir vídeo para começar.'}
+ async function startCamera(){
+   if(!navigator.mediaDevices?.getUserMedia){alert('A câmera precisa ser aberta em um endereço HTTPS num navegador compatível.');return}
+   stopStream();
+   try{
+     stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:facing},width:{ideal:1920},height:{ideal:1080}}});
+     video.srcObject=stream;video.muted=true;await video.play();mode='camera';setActive(true);
+   }catch(e){alert('Não foi possível abrir a câmera. Verifique a permissão do Safari e tente novamente. ('+e.message+')')}
+ }
+ function stopStream(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
+ document.getElementById('camera').onclick=startCamera;
+ document.getElementById('videoFile').onchange=async e=>{
+   const f=e.target.files[0];if(!f)return;stopStream();if(objectUrl)URL.revokeObjectURL(objectUrl);
+   objectUrl=URL.createObjectURL(f);video.srcObject=null;video.src=objectUrl;video.muted=false;video.controls=false;
+   try{await video.play();mode='video';setActive(true)}catch(err){alert('Toque novamente para iniciar o vídeo.');video.controls=true}
+ };
+ document.getElementById('fullscreen').onclick=async()=>{
+   try{if(document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();else if(canvas.webkitEnterFullscreen)canvas.webkitEnterFullscreen();}catch(e){}
+   screen.orientation?.lock?.('landscape').catch(()=>{});
+ };
+ document.getElementById('hide').onclick=()=>{panel.classList.add('hidden');bottom.classList.remove('hidden');status.classList.add('hidden')};
+ document.getElementById('show').onclick=()=>{panel.classList.remove('hidden');bottom.classList.add('hidden');status.classList.remove('hidden')};
+ document.getElementById('flip').onclick=()=>{facing=facing==='environment'?'user':'environment';if(mode==='camera')startCamera()};
+ document.getElementById('mirror').onclick=e=>{mirrored=!mirrored;e.target.textContent='Espelhar: '+(mirrored?'sim':'não')};
+ document.getElementById('fit').onclick=e=>{fit=fit==='cover'?'contain':'cover';e.target.textContent='Ajuste: '+(fit==='cover'?'preencher':'conter')};
+ document.getElementById('stop').onclick=()=>{stopStream();video.pause();video.srcObject=null;video.removeAttribute('src');video.load();mode='none';setActive(false)};
+ window.addEventListener('resize',resize);window.addEventListener('orientationchange',()=>setTimeout(resize,250));
+ resize();draw();
+})();
+</script>
+</body>
+</html>
